@@ -16,7 +16,7 @@ RDEPEND="!<dev-db/mysql-5.1"
 
 src_install() {
 	newconfd "${FILESDIR}/mysql-5.1.53-conf.d" "mysql"
-	newinitd "${FILESDIR}/mysql-5.1.67-r1-init.d" "mysql"
+	newinitd "${FILESDIR}/mysql-5.1.67-init.d" "mysql"
 	insinto /etc/logrotate.d
 	newins "${FILESDIR}/logrotate.mysql" "mysql"
 }

@@ -77,7 +77,7 @@ start() {
 	start-stop-daemon \
 		${DEBUG:+"--verbose"} \
 		--start \
-		--exec "${basedir}"/sbin/mysqld \
+		--exec "${basedir}"/bin/mysqld_safe \
 		--pidfile "${pidfile}" \
 		--background \
 		--wait ${startup_early_timeout} \
@@ -107,7 +107,7 @@ stop() {
 	start-stop-daemon \
 		${DEBUG:+"--verbose"} \
 		--stop \
-		--exec "${basedir}"/sbin/mysqld \
+		--exec "${basedir}"/bin/mysqld_safe \
 		--pidfile "${pidfile}" \
 		--retry ${stop_timeout}
 	eend $?
