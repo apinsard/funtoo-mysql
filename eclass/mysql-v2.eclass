@@ -8,6 +8,7 @@
 #	- MySQL Team <mysql-bugs@gentoo.org>
 #	- Robin H. Johnson <robbat2@gentoo.org>
 #	- Jorge Manuel B. S. Vicetto <jmbsvicetto@gentoo.org>
+#	- Brian Evans <grknight@gentoo.org>
 # @BLURB: This eclass provides most of the functions for mysql ebuilds
 # @DESCRIPTION:
 # The mysql-v2.eclass is the base eclass to build the mysql and
@@ -69,9 +70,9 @@ S="${WORKDIR}/mysql"
 
 [[ ${MY_EXTRAS_VER} == "latest" ]] && MY_EXTRAS_VER="20090228-0714Z"
 if [[ ${MY_EXTRAS_VER} == "live" ]]; then
-	EGIT_PROJECT=mysql-extras
 	EGIT_REPO_URI="git://git.overlays.gentoo.org/proj/mysql-extras.git"
-	RESTRICT="userpriv"
+	EGIT_CHECKOUT_DIR=${WORKDIR}/mysql-extras
+	EGIT_CLONE_TYPE=shallow
 fi
 
 # @ECLASS-VARIABLE: MYSQL_PV_MAJOR
@@ -83,9 +84,17 @@ MYSQL_PV_MAJOR="$(get_version_component_range 1-2 ${PV})"
 
 # Cluster is a special case...
 if [[ "${PN}" == "mysql-cluster" ]]; then
-	case $PV in
+	case ${PV} in
 		6.1*|7.0*|7.1*) MYSQL_PV_MAJOR=5.1 ;;
-		7.2*|7.3*) MYSQL_PV_MAJOR=5.5 ;;
+		7.2*) MYSQL_PV_MAJOR=5.5 ;;
+		7.3*) MYSQL_PV_MAJOR=5.6 ;;
+	esac
+fi
+
+# MariaDB has left the numbering schema but keeping compatibility
+if [[ "${PN}" == "mariadb" || "${PN}" == "mariadb-galera" ]]; then
+	case ${PV} in
+		10.0*|10.1*) MYSQL_PV_MAJOR="5.6" ;;
 	esac
 fi
 
@@ -162,6 +171,7 @@ if [[ -z ${SERVER_URI} ]]; then
 		MIRROR_PV=$(get_version_component_range 1-2 ${PV})
 		# Recently upstream switched to an archive site, and not on mirrors
 		SERVER_URI="http://downloads.mysql.com/archives/${URI_FILE}-${MIRROR_PV}/${URI_A}
+					https://downloads.skysql.com/files/${URI_FILE}-${MIRROR_PV}/${URI_A}
 					mirror://mysql/Downloads/${URI_DIR}-${PV%.*}/${URI_A}"
 	fi
 fi
@@ -175,7 +185,8 @@ if [[ ${MY_EXTRAS_VER} != "live" && ${MY_EXTRAS_VER} != "none" ]]; then
 		mirror://gentoo/mysql-extras-${MY_EXTRAS_VER}.tar.bz2
 		http://g3nt8.org/patches/mysql-extras-${MY_EXTRAS_VER}.tar.bz2
 		http://dev.gentoo.org/~robbat2/distfiles/mysql-extras-${MY_EXTRAS_VER}.tar.bz2
-		http://dev.gentoo.org/~jmbsvicetto/distfiles/mysql-extras-${MY_EXTRAS_VER}.tar.bz2"
+		http://dev.gentoo.org/~jmbsvicetto/distfiles/mysql-extras-${MY_EXTRAS_VER}.tar.bz2
+		http://dev.gentoo.org/~grknight/distfiles/mysql-extras-${MY_EXTRAS_VER}.tar.bz2"
 fi
 
 DESCRIPTION="A fast, multi-threaded, multi-user SQL database server."
@@ -206,6 +217,14 @@ esac
 
 # Common IUSE
 IUSE="${IUSE} latin1 extraengine cluster max-idx-128 +community profiling"
+
+if [[ ${PN} == "mariadb" || ${PN} == "mariadb-galera" ]] && mysql_version_is_at_least "5.5" ; then
+	IUSE="bindist ${IUSE}"
+elif [[ ${PN} == "mysql" || ${PN} == "percona-server" ]] && mysql_check_version_range "5.5.37 to 5.6.11.99" ; then
+	IUSE="bindist ${IUSE}"
+elif [[ ${PN} == "mysql-cluster" ]] && mysql_check_version_range "7.2 to 7.2.99.99" ; then
+	IUSE="bindist ${IUSE}"
+fi
 
 if [[ ${PN} == "mariadb" || ${PN} == "mariadb-galera" ]]; then
 	mysql_check_version_range "5.1.38 to 5.3.99" && IUSE="${IUSE} libevent"
@@ -255,8 +274,15 @@ DEPEND="
 # dev-db/mysql-5.6.12+ only works with dev-libs/libedit
 if [[ ${PN} == "mysql" || ${PN} == "percona-server" ]] && mysql_version_is_at_least "5.6.12" ; then
 	DEPEND="${DEPEND} dev-libs/libedit"
+elif [[ ${PN} == "mysql-cluster" ]] && mysql_version_is_at_least "7.3"; then
+	DEPEND="${DEPEND} dev-libs/libedit"
 else
-	DEPEND="${DEPEND} >=sys-libs/readline-4.1"
+	if mysql_version_is_at_least "5.5" ; then
+		DEPEND="${DEPEND} !bindist? ( >=sys-libs/readline-4.1 )"
+	else
+		DEPEND="${DEPEND} >=sys-libs/readline-4.1"
+	fi
+
 fi
 
 if [[ ${PN} == "mariadb" || ${PN} == "mariadb-galera" ]] ; then
@@ -659,7 +685,7 @@ mysql-v2_pkg_config() {
 	local old_MY_DATADIR="${MY_DATADIR}"
 	local old_HOME="${HOME}"
 	# my_print_defaults needs to read stuff in $HOME/.my.cnf
-	export HOME=/root
+	export HOME=${EPREFIX}/root
 
 	# Make sure the vars are correctly initialized
 	mysql_init_vars
@@ -737,7 +763,7 @@ mysql-v2_pkg_config() {
 	if [ -z "${MYSQL_ROOT_PASSWORD}" ]; then
 
 		einfo "Please provide a password for the mysql 'root' user now, in the"
-		einfo "MYSQL_ROOT_PASSWORD env var or through the /root/.my.cnf file."
+		einfo "MYSQL_ROOT_PASSWORD env var or through the  /root/.my.cnf file."
 		ewarn "Avoid [\"'\\_%] characters in the password"
 		read -rsp "    >" pwd1 ; echo
 
@@ -791,16 +817,16 @@ mysql-v2_pkg_config() {
 	# Now that /var/run is a tmpfs mount point, we need to ensure it exists before using it
 	PID_DIR="${EROOT}/var/run/mysqld"
 	if [[ ! -d "${PID_DIR}" ]]; then
-		mkdir -p "${PID_DIR}"
-		chown mysql:mysql "${PID_DIR}"
-		chmod 755 "${PID_DIR}"
+		mkdir -p "${PID_DIR}" || die "Could not create pid directory"
+		chown mysql:mysql "${PID_DIR}" || die "Could not set ownership on pid directory"
+		chmod 755 "${PID_DIR}" || die "Could not set permissions on pid directory"
 	fi
 
 	pushd "${TMPDIR}" &>/dev/null
 	#cmd="'${EROOT}/usr/share/mysql/scripts/mysql_install_db' '--basedir=${EPREFIX}/usr' ${options}"
 	cmd=${EROOT}usr/share/mysql/scripts/mysql_install_db
 	[[ -f ${cmd} ]] || cmd=${EROOT}usr/bin/mysql_install_db
-	cmd="'$cmd' '--basedir=${EPREFIX}/usr' ${options} '--datadir=${EROOT}/${MY_DATADIR}'"
+	cmd="'$cmd' '--basedir=${EPREFIX}/usr' ${options} '--datadir=${EROOT}/${MY_DATADIR}' '--tmpdir=${EROOT}/${MYSQL_TMPDIR}'"
 	einfo "Command: $cmd"
 	eval $cmd \
 		>"${TMPDIR}"/mysql_install_db.log 2>&1
@@ -834,7 +860,8 @@ mysql-v2_pkg_config() {
 		--net_buffer_length=16K \
 		--default-storage-engine=MyISAM \
 		--socket=${socket} \
-		--pid-file=${pidfile}"
+		--pid-file=${pidfile}
+		--tmpdir=${EROOT}/${MYSQL_TMPDIR}"
 	#einfo "About to start mysqld: ${mysqld}"
 	ebegin "Starting mysqld"
 	einfo "Command ${mysqld}"
