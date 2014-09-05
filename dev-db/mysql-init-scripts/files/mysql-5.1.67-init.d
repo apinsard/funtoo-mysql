@@ -58,7 +58,8 @@ start() {
 
 	if [ ! -d "${datadir}"/mysql ] ; then
 		eerror "You don't appear to have the mysql database installed yet."
-		eerror "Please run /usr/bin/mysql_install_db to have this done..."
+		eerror "Please configure mysql instance and install mysql database, using the following command:"
+		eerror "emerge --config dev-db/mysql"
 		return 1
 	fi
 
